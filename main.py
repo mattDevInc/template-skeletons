@@ -1,5 +1,7 @@
 import numpy as np
+import open3d as o3d
 import plotly.express as plt
+import math
 
 # https://www.arnoldfw.com/pdf/3d_curves.pdf
 
@@ -40,6 +42,22 @@ def main () :
     yy_ = [p[1] for p in ptss]
     zz_ = [p[2] for p in ptss]
     figg = plt.line_3d(x = xx_, y = yy_, z = zz_, title = "wave")
-    figg.show()
+    #figg.show()
+
+    # read in and show the skeleton made by the L1 thing
+    l1_skel_pts = np.load("./skeleton_i4.npy")
+    print(l1_skel_pts)
+    # tube_pcd = o3d.io.read_point_cloud("./cropped_downsampled.pcd")
+    # #print(type(l1_skel_pts))
+    # #print(np.isnan(l1_skel_pts))
+    # for p in l1_skel_pts :
+    #     #print(p[0])
+    #     if np.isnan(p[0]):
+    #         print("found a nan")
+    # print("now from the suposedly removed")
+    # #l1_skel_pts = l1_skel_pts[~np.isnan(l1_skel_pts)]
+    # skel_pcd = o3d.geometry.PointCloud()
+    # skel_pcd.points = o3d.utility.Vector3dVector(l1_skel_pts)
+    # o3d.visualization.draw_geometries([skel_pcd, tube_pcd])
 if __name__ == "__main__" :
     main()
