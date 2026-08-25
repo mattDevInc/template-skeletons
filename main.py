@@ -3,6 +3,7 @@ import open3d as o3d
 import plotly.express as plt
 import math
 import point_cloud_utils as pcu
+import os
 
 # https://www.arnoldfw.com/pdf/3d_curves.pdf
 
@@ -49,6 +50,16 @@ def define_direction (curve_pts) :
 
     return np.asarray(directed, dtype="float32")
 
+def obj_to_npy (obj_in, path_out, npy_out) :
+    pts = np.asarray(obj_in.vertices)
+    np.save(f"{path_out}/{npy_out}", pts)
+
+def normalise_pts (pts_in) :
+    mean_ = np.mean(pts_in, axis = 0)
+    pts_in -= mean_
+    furthest_distance = np.max(np.sqrt(np.sum(abs(pts_in)**2,axis =-1)))
+    pts_in /= furthest_distance
+    return pts_in
 
 def mock_dataset (skel_pts, dset_size) :
     dir_of_pts = define_direction(skel_pts)
@@ -117,8 +128,8 @@ def main () :
     pcd = o3d.geometry.PointCloud()
     pcd.points = o3d.utility.Vector3dVector(mck)
     #o3d.io.write_point_cloud("./mock_data.ply", pcd)
-    np.save(r"C:\Users\Cobra Kai\python\skeletons-from-poincloud-working-copy\Data\mock_dataset_curve", mck)
-    np.save(r"C:\Users\Cobra Kai\python\skeletons-from-poincloud-working-copy\Data\g_truth_skeleton_curve", curve_pts)
+    #np.save(r"C:\Users\Cobra Kai\python\skeletons-from-poincloud-working-copy\Data\mock_dataset_curve", mck)
+    #np.save(r"C:\Users\Cobra Kai\python\skeletons-from-poincloud-working-copy\Data\g_truth_skeleton_curve", curve_pts)
 
 
     # read in and show the skeleton made by the L1 thing
@@ -138,15 +149,53 @@ def main () :
     # o3d.visualization.draw_geometries([skel_pcd, tube_pcd])
 
     # importing a point cloud via pcu saved as a .ply
-    points = pcu.load_mesh_v("./apple_L1_skeleton.ply") # this is a numpy array shape (500,3)
+    #points = pcu.load_mesh_v("./apple_L1_skeleton.ply") # this is a numpy array shape (500,3)
     # for comparision all I need is two numpy arrays (N, 3)
 
     # chamfer distace calculation - average distance between points of two sets
-    generated_L1_skeleton_of_spiral = np.load("./L1_skeletons/L1_skel_spiral_i4.npy")
-    chamfer = pcu.chamfer_distance(spiral_pts, generated_L1_skeleton_of_spiral)
+    #generated_L1_skeleton_of_spiral = np.load("./L1_skeletons/L1_skel_spiral_i4.npy")
+    #chamfer = pcu.chamfer_distance(spiral_pts, generated_L1_skeleton_of_spiral)
     #print(chamfer)
     # so Chamfer distance between set itself is 0, as expected
     #print(pcu.chamfer_distance(spiral_pts, spiral_pts))
+    #blender_dataset = o3d.io.read_triangle_mesh(r"C:\Users\vdwq25\data\template_dataset_0.obj")
+    #b_dataset_vertices = np.asarray(blender_dataset.vertices)
+    #print(b_dataset_vertices)
+    #o3d.visualization.draw_geometries([blender_dataset])
+
+    # ___exporting all the .objs into .npys and saving so can be saved on OneDrive___
+    data_path = "C:/Users/vdwq25/data"
+    objs = os.listdir(data_path)
+
+    for fname in objs :
+        if not fname.endswith(".obj") :
+            continue
+        obj = pcu.load_mesh_v(f"{data_path}/{fname}")
+        obj_normalised = normalise_pts(obj)
+        np.save(f"C:/Users/vdwq25/data/npy/{fname[: -4]}", obj_normalised)
+
+    # thign = pcu.load_mesh_v("C:/Users/vdwq25/data/skeleton_simple_curve.obj")
+    # mean_ = np.mean(thign, axis = 0)
+    # thign -= mean_
+    # furthest_distance = np.max(np.sqrt(np.sum(abs(thign)**2,axis =-1)))
+    # thign /= furthest_distance
+    # fjlkj = o3d.geometry.PointCloud()
+    # fjlkj.points = o3d.utility.Vector3dVector(thign)
+    # o3d.io.write_point_cloud("./fdfs.ply", fjlkj)
+    # bbox = fjlkj.get_oriented_bounding_box()
+    # bbox.color = (1, 0, 0)
+    # fjlkj.paint_uniform_color([0.8, 0.8, 0.8])
+    # o3d.visualization.draw_geometries([fjlkj, bbox])
+    # print(np.asarray(bbox.get_box_points()))
+    # x_sk = [i[0] for i in thign]
+    # y_sk = [i[1] for i in thign]
+    # z_sk = [i[2] for i in thign]
+    # d = plt.line_3d(x = x_sk, y = y_sk, z = z_sk)
+    #d.show()
+
+
+
+
 
 if __name__ == "__main__" :
     main()
