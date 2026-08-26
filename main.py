@@ -1,9 +1,9 @@
 import numpy as np
 import open3d as o3d
 import plotly.express as plt
-import math
 import point_cloud_utils as pcu
 import os
+import skeletor as sk
 
 # https://www.arnoldfw.com/pdf/3d_curves.pdf
 
@@ -50,6 +50,34 @@ def define_direction (curve_pts) :
 
     return np.asarray(directed, dtype="float32")
 
+def show_coded_dataset () :
+    ts = np.linspace(0, 6 * np.pi, 50)
+    spiral_pts = make_spiral(ts, 1.8)
+    x_ = [p[0] for p in spiral_pts]
+    y_ = [p[1] for p in spiral_pts]
+    z_ = [p[2] for p in spiral_pts]
+    # pts is the skeleton, all the plt does is connect them and plot
+    
+
+    fig = plt.line_3d(x = x_, y = y_, z = z_, title = "squiggle")
+    #fig.show()
+
+    tss = np.linspace(0, 20, 20)
+    curve_pts = make_curve(tss)
+    xx_ = [p[0] for p in curve_pts]
+    yy_ = [p[1] for p in curve_pts]
+    zz_ = [p[2] for p in curve_pts]
+    figg = plt.line_3d(x = xx_, y = yy_, z = zz_, title = "wave")
+    #figg.show()
+
+    tsss = np.linspace(0, 2 * np.pi, 20)
+    circle_pts = make_circle(4, tsss, np.array([0, 0, 0]), np.array([1, 0, 0]), np.array([0, 0, 1]))
+    xxx_ = [p[0] for p in circle_pts]
+    yyy_ = [p[1] for p in circle_pts]
+    zzz_ = [p[2] for p in circle_pts]
+    figgg = plt.line_3d(x = xxx_, y = yyy_, z = zzz_, title = "circle")
+    #figgg.show()
+
 def obj_to_npy (obj_in, path_out, npy_out) :
     pts = np.asarray(obj_in.vertices)
     np.save(f"{path_out}/{npy_out}", pts)
@@ -60,6 +88,54 @@ def normalise_pts (pts_in) :
     furthest_distance = np.max(np.sqrt(np.sum(abs(pts_in)**2,axis =-1)))
     pts_in /= furthest_distance
     return pts_in
+
+def batch_normalise_objs (dir_in) :
+    objs = os.listdir(dir_in)
+
+    for fname in objs :
+        if not fname.endswith(".obj") :
+            continue
+        v, f = pcu.load_mesh_vf(f"{dir_in}/{fname}")
+        fname = fname[: -4]
+        v = normalise_pts(v)
+        fname += "_norm"
+        pcu.save_mesh_vf(f"{dir_in}/{fname}.ply", v, f)
+
+def batch_export_objs (dir_in, dir_out, normalise = False) :
+    objs = os.listdir(dir_in)
+
+    for fname in objs :
+        if not fname.endswith(".obj") :
+            continue
+        obj = pcu.load_mesh_v(f"{dir_in}/{fname}")
+        fname = fname[: -4]
+        if normalise :
+            obj = normalise_pts(obj)
+            fname += "_norm"
+
+        np.save(f"{dir_out}/{fname}", obj)
+
+def batch_load_datasets (dir_in) -> list :
+    files = os.listdir(dir_in)
+    out_list = []
+    for fname in files:
+        if not fname.endswith("norm.ply") or not fname.startswith("mock") :
+            continue
+        ply = pcu.load_mesh_vf(f"{dir_in}/{fname}")
+        out_list.append(ply)
+
+    return out_list
+
+def batch_load_truth_skels (dir_in) -> list :
+    files = os.listdir(dir_in)
+    out_list = []
+    for fname in files:
+        if not fname.endswith("norm.ply") or not fname.startswith("skel") :
+            continue
+        ply = pcu.load_mesh_v(f"{dir_in}/{fname}")
+        out_list.append(ply)
+
+    return out_list
 
 def mock_dataset (skel_pts, dset_size) :
     dir_of_pts = define_direction(skel_pts)
@@ -96,106 +172,163 @@ def mock_dataset (skel_pts, dset_size) :
     # plt.line_3d(x = x_, y = y_, z = z_).show()
     return circs
 
+def extract_max_min_haus_chamf (res_, verbose = False) -> dict :
+    max_h_key = "0"
+    max_c_key = "0"
+    min_h_key = "0"
+    min_c_key = "0"
+    max_h = res_[max_h_key]["Hausdorf"]
+    min_h = res_[min_h_key]["Hausdorf"]
+    max_c = res_[max_c_key]["Chamfer"]
+    min_c = res_[min_c_key]["Chamfer"]
+    for k in res_ :
+        haus = res_[k]["Hausdorf"]
+        chamf = res_[k]["Chamfer"]
+        if haus > max_h:
+            max_h = haus
+            max_h_key = k
+        elif haus < min_h :
+            min_h = haus
+            min_h_key = k    
+        if chamf > max_c :
+            max_c = chamf
+            max_c_key = k
+        elif chamf < min_c :
+            min_c = chamf
+            min_c_key = k
+
+    if verbose :
+        print(f'''max Hausdorf distance was achived by {res_[max_h_key]}\nmin Hausdorf distance was achieved by {res_[min_h_key]}
+                \nmax chamfer distance was achieved by {res_[max_c_key]}\nmin chamfer distance was achieved by {res_[min_c_key]}''')
+        
+    return {"max_h" : max_h_key, "min_h" : min_h_key, "max_c" : max_c_key, "min_c" : min_c_key}
+
+def visualise_skel_dataset (dataset_v, skel = None, g_truth_v = np.array([]), connect_skel = False) :
+    pcd_dataset = o3d.geometry.PointCloud()
+    pcd_dataset.points = o3d.utility.Vector3dVector(dataset_v)
+    pcd_dataset.paint_uniform_color([0.7, 0.7, 0.7])
+    to_vis = [pcd_dataset]
+
+    if skel != None :
+        pcd_skel = o3d.geometry.PointCloud()
+        pcd_skel.points = o3d.utility.Vector3dVector(skel.vertices)
+        pcd_skel.paint_uniform_color([1, 0, 0])
+        to_vis.append(pcd_skel)
+
+    if g_truth_v.size != 0 :
+        pcd_gtruth = o3d.geometry.PointCloud()
+        pcd_gtruth.points = o3d.utility.Vector3dVector(g_truth_v)
+        pcd_gtruth.paint_uniform_color([0, 0, 1])
+        to_vis.append(pcd_gtruth)
+
+    if connect_skel :
+        skel_lines = o3d.geometry.LineSet()
+        skel_lines.points = o3d.utility.Vector3dVector(skel.vertices)
+        skel_lines.lines = o3d.utility.Vector2iVector(skel.edges)
+        cols = [[1, 0, 0]] * (len(skel.vertices) - 1)
+        skel_lines.colors = o3d.utility.Vector3dVector(cols)
+        to_vis.append(skel_lines)
+
+    o3d.visualization.draw_geometries(to_vis)
+
+def wavefront_pipeline_one_dataset (dataset_to_skeletonise, truth, wave_vals_to_try, step_size_vals_to_try) :
+    fixed = sk.pre.fix_mesh(dataset_to_skeletonise, remove_disconnected = 5, inplace = False)
+    # ___!!___
+    truth = np.asfortranarray(truth)    # so pcu can calculate NNs, whatever skeletor returns
+    # is also F_CONIGOUS : True so making this match
+    truth = np.asarray(truth, dtype=np.float32)
+    # by wavefront works well
+    # edge collapse not so much
+    # mean curvature look good too
+    # tangent ball looks a bit better than mean curvature
+    # teasar not good
+    # vertex clusters giove similiar results to teasar
+    skel = None
+    n = 0
+    res = dict()
+    for i in range(1, wave_vals_to_try) :
+        for j in range(1, step_size_vals_to_try) :
+            skel = sk.skeletonize.by_wavefront(fixed, waves = i, step_size  = j)
+            skel = sk.post.clean_up(skel)   # this one seems to lower the chamfer distance by a little bit
+            skel = sk.post.smooth(skel) # this one not so much
+            verts = skel.vertices
+            verts = np.asarray(skel.vertices, dtype=np.float32)
+            chamf = pcu.chamfer_distance(verts, truth)
+            chamf = float(chamf)
+            haus = pcu.hausdorff_distance(verts, truth)
+            # print(f"Iteration {n + 1}: waves param = {i}, step size param = {j}")
+            # print("Chamfer Distance:", chamf)
+            # print("Hausdorf Distance:", haus)
+            # print("------")
+            res[str(n)] = {"Chamfer" : chamf, "Hausdorf" : haus, "no. waves" : i, "step size" : j, "skeleton" : skel}
+            n += 1
+
+    # extract max and min chamfer and hausdorf values
+    min_max_c_h = extract_max_min_haus_chamf(res)
+    skel_with_max_hausdorff = min_max_c_h["max_h"]
+    skel_with_min_hausdorff = min_max_c_h["min_h"]
+    skel_with_max_chamfer = min_max_c_h["max_c"]
+    skel_with_min_chamfer = min_max_c_h["min_c"]
+    print(res[skel_with_min_chamfer])
+
+    # plot max and min hausdorf and max and min chamfer
+    visualise_skel_dataset(dataset_to_skeletonise[0], skel=res[skel_with_min_chamfer]["skeleton"], g_truth_v=truth)
+    print("------")
+
+def tangent_ball_pipeline_one_dataset (dataset_to_skeletonise, truth) :
+    fixed = sk.pre.fix_mesh(dataset_to_skeletonise, fix_normals=True, remove_disconnected = 5, inplace = False)
+    # ___!!___
+    truth = np.asfortranarray(truth)    # so pcu can calculate NNs, whatever skeletor returns
+    # is also F_CONIGOUS : True so making this match
+    truth = np.asarray(truth, dtype=np.float32)
+    # by wavefront works well
+    # edge collapse not so much
+    # mean curvature look good too
+    # tangent ball looks a bit better than mean curvature
+    # teasar not good
+    # vertex clusters giove similiar results to teasar
+    skel = sk.skeletonize.by_tangent_ball(fixed)
+    skel = sk.post.clean_up(skel)   # this one seems to lower the chamfer distance by a little bit
+    skel = sk.post.smooth(skel) # this one not so much
+    verts = skel.vertices
+    verts = np.asarray(skel.vertices, dtype=np.float32)
+    chamf = pcu.chamfer_distance(verts, truth)
+    chamf = float(chamf)
+    haus = pcu.hausdorff_distance(verts, truth)
+    # print(f"Iteration {n + 1}: waves param = {i}, step size param = {j}")
+    # print("Chamfer Distance:", chamf)
+    # print("Hausdorf Distance:", haus)
+    # print("------")
+    print("Chamfer", chamf, "Hausdorf", haus, "skeleton", skel)
+
+    # plot max and min hausdorf and max and min chamfer
+    visualise_skel_dataset(dataset_to_skeletonise[0], skel=skel, g_truth_v=truth)
+    print("------")
+
 def main () :
-    ts = np.linspace(0, 6 * np.pi, 50)
-    spiral_pts = make_spiral(ts, 1.8)
-    x_ = [p[0] for p in spiral_pts]
-    y_ = [p[1] for p in spiral_pts]
-    z_ = [p[2] for p in spiral_pts]
-    # pts is the skeleton, all the plt does is connect them and plot
-    
-
-    fig = plt.line_3d(x = x_, y = y_, z = z_, title = "squiggle")
-    #fig.show()
-
-    tss = np.linspace(0, 20, 20)
-    curve_pts = make_curve(tss)
-    xx_ = [p[0] for p in curve_pts]
-    yy_ = [p[1] for p in curve_pts]
-    zz_ = [p[2] for p in curve_pts]
-    figg = plt.line_3d(x = xx_, y = yy_, z = zz_, title = "wave")
-    #figg.show()
-
-    tsss = np.linspace(0, 2 * np.pi, 20)
-    circle_pts = make_circle(4, tsss, np.array([0, 0, 0]), np.array([1, 0, 0]), np.array([0, 0, 1]))
-    xxx_ = [p[0] for p in circle_pts]
-    yyy_ = [p[1] for p in circle_pts]
-    zzz_ = [p[2] for p in circle_pts]
-    figgg = plt.line_3d(x = xxx_, y = yyy_, z = zzz_, title = "circle")
-    #figgg.show()
-
-    mck = mock_dataset(curve_pts, 20)
-    pcd = o3d.geometry.PointCloud()
-    pcd.points = o3d.utility.Vector3dVector(mck)
-    #o3d.io.write_point_cloud("./mock_data.ply", pcd)
-    #np.save(r"C:\Users\Cobra Kai\python\skeletons-from-poincloud-working-copy\Data\mock_dataset_curve", mck)
-    #np.save(r"C:\Users\Cobra Kai\python\skeletons-from-poincloud-working-copy\Data\g_truth_skeleton_curve", curve_pts)
-
-
-    # read in and show the skeleton made by the L1 thing
-    # l1_skel_pts = np.load("./skeleton_i4.npy")
-    # print(l1_skel_pts)
-    # tube_pcd = o3d.io.read_point_cloud("./cropped_downsampled.pcd")
-    # #print(type(l1_skel_pts))
-    # #print(np.isnan(l1_skel_pts))
-    # for p in l1_skel_pts :
-    #     #print(p[0])
-    #     if np.isnan(p[0]):
-    #         print("found a nan")
-    # print("now from the suposedly removed")
-    # #l1_skel_pts = l1_skel_pts[~np.isnan(l1_skel_pts)]
-    # skel_pcd = o3d.geometry.PointCloud()
-    # skel_pcd.points = o3d.utility.Vector3dVector(l1_skel_pts)
-    # o3d.visualization.draw_geometries([skel_pcd, tube_pcd])
-
-    # importing a point cloud via pcu saved as a .ply
-    #points = pcu.load_mesh_v("./apple_L1_skeleton.ply") # this is a numpy array shape (500,3)
-    # for comparision all I need is two numpy arrays (N, 3)
-
-    # chamfer distace calculation - average distance between points of two sets
-    #generated_L1_skeleton_of_spiral = np.load("./L1_skeletons/L1_skel_spiral_i4.npy")
-    #chamfer = pcu.chamfer_distance(spiral_pts, generated_L1_skeleton_of_spiral)
-    #print(chamfer)
-    # so Chamfer distance between set itself is 0, as expected
-    #print(pcu.chamfer_distance(spiral_pts, spiral_pts))
-    #blender_dataset = o3d.io.read_triangle_mesh(r"C:\Users\vdwq25\data\template_dataset_0.obj")
-    #b_dataset_vertices = np.asarray(blender_dataset.vertices)
-    #print(b_dataset_vertices)
-    #o3d.visualization.draw_geometries([blender_dataset])
-
     # ___exporting all the .objs into .npys and saving so can be saved on OneDrive___
     data_path = "C:/Users/vdwq25/data"
-    objs = os.listdir(data_path)
+    data_path_out = "C:/Users/vdwq25/data/npy"
 
-    for fname in objs :
-        if not fname.endswith(".obj") :
-            continue
-        obj = pcu.load_mesh_v(f"{data_path}/{fname}")
-        obj_normalised = normalise_pts(obj)
-        np.save(f"C:/Users/vdwq25/data/npy/{fname[: -4]}", obj_normalised)
+    #batch_export_objs(data_path, data_path_out)
+    #batch_export_objs(data_path, data_path_out, normalise=True)
+    #batch_normalise_objs(data_path)
+    ply_datasets = batch_load_datasets(data_path)
+    ply_truth_skels = batch_load_truth_skels(data_path)
+    to_dup = ply_truth_skels[1]
+    ply_truth_skels.insert(2, to_dup)
+    #print(ply_truth_skels)
+    # those two are now parallel - dataset with index 0 has corresponding skeleton in the 
+    # other list at the same index
 
-    # thign = pcu.load_mesh_v("C:/Users/vdwq25/data/skeleton_simple_curve.obj")
-    # mean_ = np.mean(thign, axis = 0)
-    # thign -= mean_
-    # furthest_distance = np.max(np.sqrt(np.sum(abs(thign)**2,axis =-1)))
-    # thign /= furthest_distance
-    # fjlkj = o3d.geometry.PointCloud()
-    # fjlkj.points = o3d.utility.Vector3dVector(thign)
-    # o3d.io.write_point_cloud("./fdfs.ply", fjlkj)
-    # bbox = fjlkj.get_oriented_bounding_box()
-    # bbox.color = (1, 0, 0)
-    # fjlkj.paint_uniform_color([0.8, 0.8, 0.8])
-    # o3d.visualization.draw_geometries([fjlkj, bbox])
-    # print(np.asarray(bbox.get_box_points()))
-    # x_sk = [i[0] for i in thign]
-    # y_sk = [i[1] for i in thign]
-    # z_sk = [i[2] for i in thign]
-    # d = plt.line_3d(x = x_sk, y = y_sk, z = z_sk)
-    #d.show()
+    #dataset_to_skeletonise = pcu.load_mesh_vf(r"C:\Users\vdwq25\data\mock_dataset_complex_holes_norm.ply")
+    truth = pcu.load_mesh_v(r"C:\Users\vdwq25\data\skel_complex_branching_norm.ply")
 
+    # for i in range(len(ply_datasets)) :
+    #     wavefront_pipeline_one_dataset(ply_datasets[i], ply_truth_skels[i], 10, 7)
 
-
-
+    for i in range(len(ply_datasets)) :
+        tangent_ball_pipeline_one_dataset(ply_datasets[i], ply_truth_skels[i])
 
 if __name__ == "__main__" :
     main()
