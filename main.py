@@ -5,8 +5,6 @@ import point_cloud_utils as pcu
 import os
 import skeletor as sk
 
-# https://www.arnoldfw.com/pdf/3d_curves.pdf
-
 # some of those might need swapping around
 # for t [0, 6pi]
 def make_spiral (t, a) :
@@ -237,12 +235,6 @@ def wavefront_pipeline_one_dataset (dataset_to_skeletonise, truth, wave_vals_to_
     truth = np.asfortranarray(truth)    # so pcu can calculate NNs, whatever skeletor returns
     # is also F_CONIGOUS : True so making this match
     truth = np.asarray(truth, dtype=np.float32)
-    # by wavefront works well
-    # edge collapse not so much
-    # mean curvature look good too
-    # tangent ball looks a bit better than mean curvature
-    # teasar not good
-    # vertex clusters giove similiar results to teasar
     skel = None
     n = 0
     res = dict()
@@ -279,14 +271,9 @@ def tangent_ball_pipeline_one_dataset (dataset_to_skeletonise, truth) :
     fixed = sk.pre.fix_mesh(dataset_to_skeletonise, fix_normals=True, remove_disconnected = 5, inplace = False)
     # ___!!___
     truth = np.asfortranarray(truth)    # so pcu can calculate NNs, whatever skeletor returns
-    # is also F_CONIGOUS : True so making this match
+    # is also F_CONTIGOUS : True so making this match
     truth = np.asarray(truth, dtype=np.float32)
-    # by wavefront works well
-    # edge collapse not so much
-    # mean curvature look good too
-    # tangent ball looks a bit better than mean curvature
-    # teasar not good
-    # vertex clusters giove similiar results to teasar
+
     skel = sk.skeletonize.by_tangent_ball(fixed)
     skel = sk.post.clean_up(skel)   # this one seems to lower the chamfer distance by a little bit
     skel = sk.post.smooth(skel) # this one not so much
@@ -295,14 +282,135 @@ def tangent_ball_pipeline_one_dataset (dataset_to_skeletonise, truth) :
     chamf = pcu.chamfer_distance(verts, truth)
     chamf = float(chamf)
     haus = pcu.hausdorff_distance(verts, truth)
-    # print(f"Iteration {n + 1}: waves param = {i}, step size param = {j}")
-    # print("Chamfer Distance:", chamf)
-    # print("Hausdorf Distance:", haus)
-    # print("------")
     print("Chamfer", chamf, "Hausdorf", haus, "skeleton", skel)
 
     # plot max and min hausdorf and max and min chamfer
     visualise_skel_dataset(dataset_to_skeletonise[0], skel=skel, g_truth_v=truth)
+    print("------")
+
+def mean_curvature_pipeline_one_dataset (dataset_to_skeletonise, truth, epsilons, collapse_factors, init_attraction_weights, show_prog = True) :
+    fixed = sk.pre.fix_mesh(dataset_to_skeletonise, remove_disconnected = 5, inplace = False)
+    # ___!!___
+    truth = np.asfortranarray(truth)    # so pcu can calculate NNs, whatever skeletor returns
+    # is also F_CONIGOUS : True so making this match
+    truth = np.asarray(truth, dtype=np.float32)
+    # by wavefront works well
+    # edge collapse not so much
+    # mean curvature look good too
+    # tangent ball looks a bit better than mean curvature
+    # teasar not good
+    # vertex clusters giove similiar results to teasar
+    skel = None
+    n = 0
+    res = dict()
+    for i in epsilons :
+        for j in collapse_factors :
+            for k in init_attraction_weights :
+                skel = sk.skeletonize.by_mean_curvature(fixed, i, collapse_factor=j, WH0=k, progress=show_prog)
+                skel = sk.post.clean_up(skel)   
+                skel = sk.post.smooth(skel)
+                verts = skel.vertices
+                verts = np.asarray(skel.vertices, dtype=np.float32)
+                chamf = pcu.chamfer_distance(verts, truth)
+                chamf = float(chamf)
+                haus = pcu.hausdorff_distance(verts, truth)
+                # print(f"Iteration {n + 1}: waves param = {i}, step size param = {j}")
+                # print("Chamfer Distance:", chamf)
+                # print("Hausdorf Distance:", haus)
+                # print("------")
+            res[str(n)] = {"Chamfer" : chamf, "Hausdorf" : haus, "epsilon" : i, "collapse factor" : j, "skeleton" : skel}
+            n += 1
+
+    # extract max and min chamfer and hausdorf values
+    min_max_c_h = extract_max_min_haus_chamf(res)
+    skel_with_max_hausdorff = min_max_c_h["max_h"]
+    skel_with_min_hausdorff = min_max_c_h["min_h"]
+    skel_with_max_chamfer = min_max_c_h["max_c"]
+    skel_with_min_chamfer = min_max_c_h["min_c"]
+    print(res[skel_with_min_chamfer])
+
+    # plot max and min hausdorf and max and min chamfer
+    visualise_skel_dataset(dataset_to_skeletonise[0], skel=res[skel_with_min_chamfer]["skeleton"], g_truth_v=truth)
+    print("------")
+
+# this one is fast however by nature of the algorithm the skeleton is on the surface of the tube
+def teasar_pipeline_one_dataset (dataset_to_skeletonise, truth, inv_distances) :
+    fixed = sk.pre.fix_mesh(dataset_to_skeletonise, remove_disconnected = 5, inplace = False)
+    # ___!!___
+    truth = np.asfortranarray(truth)    # so pcu can calculate NNs, whatever skeletor returns
+    # is also F_CONIGOUS : True so making this match
+    truth = np.asarray(truth, dtype=np.float32)
+    skel = None
+    n = 0
+    res = dict()
+    for i in inv_distances :
+        skel = sk.skeletonize.by_teasar(fixed, i)
+        skel = sk.post.clean_up(skel)   
+        skel = sk.post.smooth(skel)
+        verts = skel.vertices
+        verts = np.asarray(skel.vertices, dtype=np.float32)
+        chamf = pcu.chamfer_distance(verts, truth)
+        chamf = float(chamf)
+        haus = pcu.hausdorff_distance(verts, truth)
+        # print(f"Iteration {n + 1}: waves param = {i}, step size param = {j}")
+        # print("Chamfer Distance:", chamf)
+        # print("Hausdorf Distance:", haus)
+        # print("------")
+    res[str(n)] = {"Chamfer" : chamf, "Hausdorf" : haus, "invalidation distance" : i, "skeleton" : skel}
+    n += 1
+
+    # extract max and min chamfer and hausdorf values
+    min_max_c_h = extract_max_min_haus_chamf(res)
+    skel_with_max_hausdorff = min_max_c_h["max_h"]
+    skel_with_min_hausdorff = min_max_c_h["min_h"]
+    skel_with_max_chamfer = min_max_c_h["max_c"]
+    skel_with_min_chamfer = min_max_c_h["min_c"]
+    print(res[skel_with_min_chamfer])
+
+    # plot max and min hausdorf and max and min chamfer
+    visualise_skel_dataset(dataset_to_skeletonise[0], skel=res[skel_with_min_chamfer]["skeleton"], g_truth_v=truth)
+    print("------")
+
+# the pipline in this one is slighly different
+def vertex_clusters_pipeline_one_dataset (dataset_to_skeletonise, truth, samp_dist, epsilons) :
+    fixed = sk.pre.fix_mesh(dataset_to_skeletonise, remove_disconnected = 5, inplace = False)
+    # ___!!___
+    truth = np.asfortranarray(truth)    # so pcu can calculate NNs, whatever skeletor returns
+    # is also F_CONIGOUS : True so making this match
+    truth = np.asarray(truth, dtype=np.float32)
+    skel = None
+    n = 0
+    res = dict()
+    for i in samp_dist :
+        for j in epsilons :
+            cont = sk.pre.contract(fixed, j)    # contraction is necessary for this step
+            # sample distance = i, this should be tuned based on the resolution of the mesh
+            skel = sk.skeletonize.by_vertex_clusters(fixed, i)
+            skel = sk.post.clean_up(skel)   
+            skel = sk.post.smooth(skel)
+            sk.post.radii(skel, method="knn")   # this method does not add radii automatically
+            verts = skel.vertices
+            verts = np.asarray(skel.vertices, dtype=np.float32)
+            chamf = pcu.chamfer_distance(verts, truth)
+            chamf = float(chamf)
+            haus = pcu.hausdorff_distance(verts, truth)
+            # print(f"Iteration {n + 1}: waves param = {i}, step size param = {j}")
+            # print("Chamfer Distance:", chamf)
+            # print("Hausdorf Distance:", haus)
+            # print("------")
+        res[str(n)] = {"Chamfer" : chamf, "Hausdorf" : haus, "sampling distance" : i, "contraction %" : j * 100, "skeleton" : skel}
+        n += 1
+
+    # extract max and min chamfer and hausdorf values
+    min_max_c_h = extract_max_min_haus_chamf(res)
+    skel_with_max_hausdorff = min_max_c_h["max_h"]
+    skel_with_min_hausdorff = min_max_c_h["min_h"]
+    skel_with_max_chamfer = min_max_c_h["max_c"]
+    skel_with_min_chamfer = min_max_c_h["min_c"]
+    print(res[skel_with_min_chamfer])
+
+    # plot max and min hausdorf and max and min chamfer
+    visualise_skel_dataset(dataset_to_skeletonise[0], skel=res[skel_with_min_chamfer]["skeleton"], g_truth_v=truth)
     print("------")
 
 def main () :
@@ -312,12 +420,12 @@ def main () :
 
     #batch_export_objs(data_path, data_path_out)
     #batch_export_objs(data_path, data_path_out, normalise=True)
+    # run this line below if you made changes to the /data folder
     #batch_normalise_objs(data_path)
     ply_datasets = batch_load_datasets(data_path)
     ply_truth_skels = batch_load_truth_skels(data_path)
     to_dup = ply_truth_skels[1]
     ply_truth_skels.insert(2, to_dup)
-    #print(ply_truth_skels)
     # those two are now parallel - dataset with index 0 has corresponding skeleton in the 
     # other list at the same index
 
@@ -327,8 +435,30 @@ def main () :
     # for i in range(len(ply_datasets)) :
     #     wavefront_pipeline_one_dataset(ply_datasets[i], ply_truth_skels[i], 10, 7)
 
+    # for i in range(len(ply_datasets)) :
+    #     tangent_ball_pipeline_one_dataset(ply_datasets[i], ply_truth_skels[i])
+
+    # epsilons_ = np.arange(0.1, 0.5, 0.05) 
+    # collapse_factors_ = np.arange(0.2, 0.7, 0.05)
+    # initial_attraction_weights = range(1, 5)
+    # for i in range(len(ply_datasets)) :
+    #     if i == 2 : continue
+    #     mean_curvature_pipeline_one_dataset(ply_datasets[i],
+    #                                         ply_truth_skels[i],
+    #                                         epsilons=epsilons_,
+    #                                         collapse_factors=collapse_factors_,
+    #                                         init_attraction_weights=initial_attraction_weights,
+    #                                         show_prog=False)
+
+    # inv_dists = np.arange(0.1, 1, 0.05)
+    # for i in range(len(ply_datasets)) :
+    #     teasar_pipeline_one_dataset(ply_datasets[i], ply_truth_skels[i], inv_dists)
+
+
+    sampling_distance = np.arange(0.1, 1, 0.1)
+    epsilons_vclusts = np.arange(0.01, 0.2, 0.02)
     for i in range(len(ply_datasets)) :
-        tangent_ball_pipeline_one_dataset(ply_datasets[i], ply_truth_skels[i])
+        vertex_clusters_pipeline_one_dataset(ply_datasets[i], ply_truth_skels[i], sampling_distance, epsilons_vclusts)
 
 if __name__ == "__main__" :
     main()
