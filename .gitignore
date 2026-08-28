@@ -2,3 +2,4 @@
 /.vscode   
 *.ply
 *.npy
+/out
