@@ -83,14 +83,12 @@ def obj_to_npy (obj_in, path_out, npy_out) :
     pts = np.asarray(obj_in.vertices)
     np.save(f"{path_out}/{npy_out}", pts)
 
-def normalise_pts (pts_in) :
+def center_pts (pts_in) :
     mean_ = np.mean(pts_in, axis = 0)
     pts_in -= mean_
-    furthest_distance = np.max(np.sqrt(np.sum(abs(pts_in)**2,axis =-1)))
-    pts_in /= furthest_distance
     return pts_in
 
-def batch_normalise_objs (dir_in) :
+def batch_center_objs (dir_in) :
     objs = os.listdir(dir_in)
 
     for fname in objs :
@@ -98,11 +96,11 @@ def batch_normalise_objs (dir_in) :
             continue
         v, f = pcu.load_mesh_vf(f"{dir_in}/{fname}")
         fname = fname[: -4]
-        v = normalise_pts(v)
-        fname += "_norm"
+        v = center_pts(v)
+        fname += "_centr"
         pcu.save_mesh_vf(f"{dir_in}/{fname}.ply", v, f)
 
-def batch_export_objs (dir_in, dir_out, normalise = False) :
+def batch_export_objs (dir_in, dir_out, center = False) :
     objs = os.listdir(dir_in)
 
     for fname in objs :
@@ -110,9 +108,9 @@ def batch_export_objs (dir_in, dir_out, normalise = False) :
             continue
         obj = pcu.load_mesh_v(f"{dir_in}/{fname}")
         fname = fname[: -4]
-        if normalise :
-            obj = normalise_pts(obj)
-            fname += "_norm"
+        if center :
+            obj = center_pts(obj)
+            fname += "_centr"
 
         np.save(f"{dir_out}/{fname}", obj)
 
@@ -120,7 +118,7 @@ def batch_load_datasets (dir_in) -> list :
     files = os.listdir(dir_in)
     out_list = []
     for fname in files:
-        if not fname.endswith("norm.ply") or not fname.startswith("mock") :
+        if not fname.endswith("centr.ply") or not fname.startswith("mock") :
             continue
         ply = pcu.load_mesh_vf(f"{dir_in}/{fname}")
         out_list.append(ply)
@@ -131,7 +129,7 @@ def batch_load_truth_skels (dir_in) -> list :
     files = os.listdir(dir_in)
     out_list = []
     for fname in files:
-        if not fname.endswith("norm.ply") or not fname.startswith("skel") :
+        if not fname.endswith("centr.ply") or not fname.startswith("skel") :
             continue
         ply = pcu.load_mesh_v(f"{dir_in}/{fname}")
         out_list.append(ply)
@@ -142,9 +140,9 @@ def dataset_names (dir_in) :
     files = os.listdir(dir_in)
     out_list = []
     for fname in files:
-        if not fname.endswith("norm.ply") or not fname.startswith("mock") :
+        if not fname.endswith("centr.ply") or not fname.startswith("mock") :
             continue  
-        out_list.append(fname[: -9])
+        out_list.append(fname[: -10])
 
     return out_list
 
@@ -200,12 +198,12 @@ def extract_max_min_haus_chamf_mover (res_, verbose = False) -> dict :
     min_h = res_[min_h_key]["Hausdorff"]
     max_c = res_[max_c_key]["Chamfer"]
     min_c = res_[min_c_key]["Chamfer"]
-    max_e = res_[max_e_key]["Earth's Mover"]
-    min_e = res_[min_e_key]["Earth's Mover"]
+    max_e = res_[max_e_key]["Earth Mover's"]
+    min_e = res_[min_e_key]["Earth Mover's"]
     for k in res_ :
         haus = res_[k]["Hausdorff"]
         chamf = res_[k]["Chamfer"]
-        e_move = res_[k]["Earth's Mover"]
+        e_move = res_[k]["Earth Mover's"]
         if haus > max_h:
             max_h = haus
             max_h_key = k
@@ -226,9 +224,9 @@ def extract_max_min_haus_chamf_mover (res_, verbose = False) -> dict :
             min_e_key = k
 
     if verbose :
-        print(f'''max Hausdorf distance was achived by {res_[max_h_key]}\nmin Hausdorff distance was achieved by {res_[min_h_key]}
-                \nmax chamfer distance was achieved by {res_[max_c_key]}\nmin chamfer distance was achieved by {res_[min_c_key]}
-                \nmax Earth's mover distance was achieved by {res_[max_e_key]}\nmin Earth's mover distance was achieved by {res_[min_e_key]}''')
+        print(f'''max Hausdorff distance was achived by {res_[max_h_key]}\nmin Hausdorff distance was achieved by {res_[min_h_key]}
+                \nmax Chamfer distance was achieved by {res_[max_c_key]}\nmin Chamfer distance was achieved by {res_[min_c_key]}
+                \nmax Earth mover's distance was achieved by {res_[max_e_key]}\nmin Earth mover's distance was achieved by {res_[min_e_key]}''')
         
     return {"max_h" : max_h_key, "min_h" : min_h_key, "max_c" : max_c_key, "min_c" : min_c_key, "max_e" : max_e_key, "min_e" : min_e_key}
 
@@ -260,8 +258,50 @@ def visualise_skel_dataset (dataset_v, skel = None, g_truth_v = np.array([]), co
 
     o3d.visualization.draw_geometries(to_vis)
 
-#def common_part_algorithm_piplines (skel, truth) :
+def save_output_as_visualisation (dataset_v, out_name, skel = None, g_truth_v = np.array([])) :
+    pcd_dataset = o3d.geometry.PointCloud()
+    pcd_dataset.points = o3d.utility.Vector3dVector(dataset_v)
+    pcd_dataset.paint_uniform_color([0.7, 0.7, 0.7])
 
+    vis = o3d.visualization.Visualizer()
+    vis.create_window(width = 600, height = 600)
+    vis.add_geometry(pcd_dataset)
+    v_ctrl = vis.get_view_control()
+    R = pcd_dataset.get_rotation_matrix_from_xyz((np.pi / 2,0 ,0))
+    pcd_dataset.rotate(R, center = pcd_dataset.get_center())
+
+    if skel != None :
+        pcd_skel = o3d.geometry.PointCloud()
+        pcd_skel.points = o3d.utility.Vector3dVector(skel.vertices)
+        pcd_skel.paint_uniform_color([1, 0, 0])
+        R = pcd_skel.get_rotation_matrix_from_xyz((np.pi / 2,0 ,0))
+        pcd_skel.rotate(R, center = pcd_skel.get_center())
+        vis.add_geometry(pcd_skel)
+
+    if g_truth_v.size != 0 :
+        pcd_gtruth = o3d.geometry.PointCloud()
+        pcd_gtruth.points = o3d.utility.Vector3dVector(g_truth_v)
+        pcd_gtruth.paint_uniform_color([0, 0, 1])
+        R = pcd_gtruth.get_rotation_matrix_from_xyz((np.pi / 2,0 ,0))
+        pcd_gtruth.rotate(R, center = pcd_gtruth.get_center())
+        vis.add_geometry(pcd_gtruth)
+    
+    vis.poll_events()
+    vis.update_renderer()
+    vis.capture_screen_image(f"./vis/{out_name}.png")
+
+
+def rotation (pcu_mesh, euler_angles) :
+    msh = o3d.geometry.TriangleMesh()
+    msh.vertices = o3d.utils.Vector3dVector(pcu_mesh[0])
+    msh.faces = o3d.utils.Vector3dVector(pcu_mesh[1])
+    R = msh.get_rotation_matrix_from_xyz(euler_angles)
+    msh.rotate(R, center = msh.get_center())
+    out = np.asarray(msh.points, dtype=np.float64)
+    return np.asfortranarray(out)
+
+# def check_if_invartiant_under_iso_transform (dataset_vf) :
+#     rotated
 
 def wavefront_pipeline_one_dataset (dataset_to_skeletonise, truth, wave_vals_to_try, step_size_vals_to_try, show_prog=True, show_vis=True, verbose=False) -> dict :
     # extract name of the dataset and the vertices
@@ -276,8 +316,8 @@ def wavefront_pipeline_one_dataset (dataset_to_skeletonise, truth, wave_vals_to_
     n = 0
     res = dict()
     optimal_cycle = dict()
-    for i in range(1, wave_vals_to_try) :
-        for j in range(1, step_size_vals_to_try) :
+    for i in wave_vals_to_try :
+        for j in step_size_vals_to_try :
             s = time.process_time()
             skel = sk.skeletonize.by_wavefront(fixed, waves = i, step_size  = j, progress=show_prog)
             algorithm_run_time = time.process_time() - s
@@ -298,9 +338,9 @@ def wavefront_pipeline_one_dataset (dataset_to_skeletonise, truth, wave_vals_to_
                 print(f"Iteration {n + 1}, on dataset {dataset_name}: waves param = {i}, step size param = {j}")
                 print("Chamfer Distance:", chamf)
                 print("Hausdorf Distance:", haus)
-                print("Earth's Mover Distace:", e_mover)
+                print("Earth Mover's Distace:", e_mover)
                 print("------")
-            res[str(n)] = {"on dataset" : dataset_name, "Chamfer" : chamf, "Hausdorff" : haus, "Earth's Mover" : e_mover, "no. waves" : i, "step size" : j, "skeleton" : skel, "runtime" : algorithm_run_time}
+            res[str(n)] = {"on dataset" : dataset_name, "Chamfer" : chamf, "Hausdorff" : haus, "Earth Mover's" : e_mover, "no. waves" : i, "step size" : j, "skeleton" : skel, "runtime" : algorithm_run_time}
             n += 1
 
     # extract max and min chamfer, hausdorf and E. Mover values
@@ -320,6 +360,7 @@ def wavefront_pipeline_one_dataset (dataset_to_skeletonise, truth, wave_vals_to_
     if show_vis :
         visualise_skel_dataset(dataset[0], skel=res[skel_with_min_emover]["skeleton"], g_truth_v=truth)
     print("------")
+    save_output_as_visualisation(dataset[0], f"{dataset_name}_wavefront", skel=skel, g_truth_v=truth)
 
     return optimal_cycle
 
@@ -349,14 +390,15 @@ def tangent_ball_pipeline_one_dataset (dataset_to_skeletonise, truth, show_prog=
     e_mover = round(e_mover, 5)
     algorithm_run_time = round(algorithm_run_time, 5)
     if verbose:
-        print("Chamfer", chamf, "Hausdorff", haus, "Earth's Mover", e_mover, "skeleton", skel)
+        print("Chamfer", chamf, "Hausdorff", haus, "Earth Mover's", e_mover, "skeleton", skel)
 
     # plot max and min hausdorf and max and min chamfer
     if show_vis :
         visualise_skel_dataset(dataset[0], skel=skel, g_truth_v=truth)
     print("------")
+    save_output_as_visualisation(dataset[0], f"{dataset_name}_tangent_ball", skel=skel, g_truth_v=truth)
 
-    return {"on dataset" : dataset_name, "Chamfer" : chamf, "Hausdorff" : haus, "Earth's Mover" : e_mover, "runtime" : algorithm_run_time, "no. skeleton vertices" : skel.vertices.shape[0]}
+    return {"on dataset" : dataset_name, "Chamfer" : chamf, "Hausdorff" : haus, "Earth Mover's" : e_mover, "runtime" : algorithm_run_time, "no. skeleton vertices" : skel.vertices.shape[0]}
 
 def mean_curvature_pipeline_one_dataset (dataset_to_skeletonise, truth, epsilons, collapse_factors, init_attraction_weights, show_prog = True, show_vis = True, verbose = False) :
     # extract name of the dataset and the vertices
@@ -393,14 +435,14 @@ def mean_curvature_pipeline_one_dataset (dataset_to_skeletonise, truth, epsilons
                 j = round(j, 5)
                 k = round(k, 5)
                 algorithm_run_time = round(algorithm_run_time, 5)
-            if verbose :
-                        print(f"Iteration {n + 1}: waves param = {i}, step size param = {j}")
-                        print("Chamfer Distance:", chamf)
-                        print("Hausdorff Distance:", haus)
-                        print("Earth's Mover Distace:", e_mover)
-                        print("------")
-            res[str(n)] = {"on dataset" : dataset_name, "Chamfer" : chamf, "Hausdorff" : haus, "Earth's Mover" : e_mover, "epsilon" : i, "collapse factor" : j, "initial attraction weight" : k, "skeleton" : skel, "runtime" : algorithm_run_time}
-            n += 1
+                if verbose :
+                            print(f"Iteration {n + 1}: waves param = {i}, step size param = {j}")
+                            print("Chamfer Distance:", chamf)
+                            print("Hausdorff Distance:", haus)
+                            print("Earth Mover's Distace:", e_mover)
+                            print("------")
+                res[str(n)] = {"on dataset" : dataset_name, "Chamfer" : chamf, "Hausdorff" : haus, "Earth Mover's" : e_mover, "epsilon" : i, "collapse factor" : j, "initial attraction weight" : k, "skeleton" : skel, "runtime" : algorithm_run_time}
+                n += 1
 
     # extract max and min chamfer, hausdorf and E. Mover values
     min_max_c_h_e = extract_max_min_haus_chamf_mover(res)
@@ -416,8 +458,10 @@ def mean_curvature_pipeline_one_dataset (dataset_to_skeletonise, truth, epsilons
     optimal_cycle.pop("skeleton")
 
     # plot max and min hausdorf and max and min chamfer
-    visualise_skel_dataset(dataset[0], skel=res[skel_with_min_emover]["skeleton"], g_truth_v=truth)
+    if show_vis :
+        visualise_skel_dataset(dataset[0], skel=res[skel_with_min_emover]["skeleton"], g_truth_v=truth)
     print("------")
+    save_output_as_visualisation(dataset[0], f"{dataset_name}_mean_curvature", skel=skel, g_truth_v=truth)
 
     return optimal_cycle
 
@@ -457,10 +501,10 @@ def teasar_pipeline_one_dataset (dataset_to_skeletonise, truth, inv_distances, s
             print(f"Iteration {n + 1}: waves param = {i}, step size param = {j}")
             print("Chamfer Distance:", chamf)
             print("Hausdorf Distance:", haus)
-            print("Earth's Mover Distace:", e_mover)
+            print("Earth Mover's Distace:", e_mover)
             print("------")
-    res[str(n)] = {"on dataset" : dataset_name, "Chamfer" : chamf, "Hausdorff" : haus, "Earth's Mover" : e_mover, "invalidation distance" : i, "skeleton" : skel, "runtime" : algorithm_run_time}
-    n += 1
+        res[str(n)] = {"on dataset" : dataset_name, "Chamfer" : chamf, "Hausdorff" : haus, "Earth Mover's" : e_mover, "invalidation distance" : i, "skeleton" : skel, "runtime" : algorithm_run_time}
+        n += 1
 
    # extract max and min chamfer, hausdorf and E. Mover values
     min_max_c_h_e = extract_max_min_haus_chamf_mover(res)
@@ -479,6 +523,7 @@ def teasar_pipeline_one_dataset (dataset_to_skeletonise, truth, inv_distances, s
     if show_vis :
         visualise_skel_dataset(dataset[0], skel=res[skel_with_min_emover]["skeleton"], g_truth_v=truth)
     print("------")
+    save_output_as_visualisation(dataset[0], f"{dataset_name}_teasar", skel=skel, g_truth_v=truth)
 
     return optimal_cycle
 
@@ -486,7 +531,7 @@ def teasar_pipeline_one_dataset (dataset_to_skeletonise, truth, inv_distances, s
 def vertex_clusters_pipeline_one_dataset (dataset_to_skeletonise, truth, samp_dist, epsilons, show_prog = True, show_vis = True, verbose = False) :
     dataset = dataset_to_skeletonise[0]
     dataset_name = dataset_to_skeletonise[1]
-    fixed = sk.pre.fix_mesh(dataset_to_skeletonise, remove_disconnected = 5, inplace = False)
+    fixed = sk.pre.fix_mesh(dataset, remove_disconnected = 5, inplace = False)
     # ___!!___
     truth = np.asfortranarray(truth)    # so pcu can calculate NNs, whatever skeletor returns
     # is also F_CONIGOUS : True so making this match
@@ -522,10 +567,10 @@ def vertex_clusters_pipeline_one_dataset (dataset_to_skeletonise, truth, samp_di
                 print(f"Iteration {n + 1}: waves param = {i}, step size param = {j}")
                 print("Chamfer Distance:", chamf)
                 print("Hausdorf Distance:", haus)
-                print("Earth's Mover Distace:", e_mover)
+                print("Earth Mover's Distace:", e_mover)
                 print("------")
-        res[str(n)] = {"on dataset" : dataset_name, "Chamfer" : chamf, "Hausdorff" : haus, "Earth's Mover" : e_mover, "sampling distance" : i, "contraction %" : j * 100, "skeleton" : skel, "runtime" : algorithm_run_time}
-        n += 1
+            res[str(n)] = {"on dataset" : dataset_name, "Chamfer" : chamf, "Hausdorff" : haus, "Earth Mover's" : e_mover, "sampling distance" : i, "contraction %" : j * 100, "skeleton" : skel, "runtime" : algorithm_run_time}
+            n += 1
 
     # extract max and min chamfer, hausdorf and E. Mover values
     min_max_c_h_e = extract_max_min_haus_chamf_mover(res)
@@ -541,21 +586,20 @@ def vertex_clusters_pipeline_one_dataset (dataset_to_skeletonise, truth, samp_di
     optimal_cycle.pop("skeleton")
 
     # plot max and min hausdorf and max and min chamfer
+    # this was removed from the visualisation call , g_truth_v=truth
     if show_vis :
-        visualise_skel_dataset(dataset.astype(np.float64), skel=res[skel_with_min_emover]["skeleton"], g_truth_v=truth)
+        visualise_skel_dataset(dataset[0], skel=res[skel_with_min_emover]["skeleton"])
     print("------")
+    save_output_as_visualisation(dataset[0], f"{dataset_name}_vertex_clusters", skel=skel, g_truth_v=truth)
 
     return optimal_cycle
 
 def main () :
-    # ___exporting all the .objs into .npys and saving so can be saved on OneDrive___
     data_path = "C:/Users/vdwq25/data"
     data_path_out = "C:/Users/vdwq25/data/npy"
 
-    #batch_export_objs(data_path, data_path_out)
-    #batch_export_objs(data_path, data_path_out, normalise=True)
     # run this line below if you made changes to the /data folder
-    #batch_normalise_objs(data_path)
+    #batch_center_objs(data_path)
     ply_datasets = batch_load_datasets(data_path)
     ply_truth_skels = batch_load_truth_skels(data_path)
     to_dup = ply_truth_skels[1]
@@ -564,57 +608,60 @@ def main () :
     ply_datasets_names = dataset_names(data_path)
     # create a list that containst tuples (dataset vertices and faces, dataset name)
     named_datasets = convert_to_list_of_tuples(ply_datasets, ply_datasets_names)
-
     # named_datasets and ply_truth_skels are now parallel - dataset with index i has corresponding skeleton in the 
     # other list at the same index
-    # optimal_res_wavefront = []
-    # for i in range(len(ply_datasets)) :
-    #     optm = wavefront_pipeline_one_dataset(named_datasets[i], ply_truth_skels[i], 10, 7, show_vis=False, show_prog=True)
-    #     optimal_res_wavefront.append(optm)
+
+    waves = range(1, 11)
+    steps = range(1, 7)
+    optimal_res_wavefront = []
+    for i in range(len(ply_datasets)) :
+        optm = wavefront_pipeline_one_dataset(named_datasets[i], ply_truth_skels[i], [2, 5, 6, 8], [1, 2], show_vis=False, show_prog=True)
+        optimal_res_wavefront.append(optm)
 
     # df = pd.DataFrame(optimal_res_wavefront)
     # df.to_csv("./out/wavefront_statistics.csv", index=False)
 
     optimal_res_tangent_ball = []
     for i in range(len(ply_datasets)) :
-        optm = tangent_ball_pipeline_one_dataset(named_datasets[i], ply_truth_skels[i], show_vis=True, verbose=True)
+        optm = tangent_ball_pipeline_one_dataset(named_datasets[i], ply_truth_skels[i], show_vis=False, verbose=True)
         optimal_res_tangent_ball.append(optm)
     
     # df = pd.DataFrame(optimal_res_tangent_ball)
     # df.to_csv("./out/tangent_ball_statistics.csv", index=False)
 
-    # optimal_res_mean_curvature = []
-    # epsilons_ = np.arange(0.1, 0.5, 0.05) 
-    # collapse_factors_ = np.arange(0.2, 0.7, 0.05)
-    # initial_attraction_weights = range(1, 5)
-    # for i in range(len(ply_datasets)) :
-    #     if i == 2 : continue    # the algorithm refuses to work on a dataset with holes
-    #     optim = mean_curvature_pipeline_one_dataset(named_datasets[i],
-    #                                         ply_truth_skels[i],
-    #                                         epsilons=epsilons_,
-    #                                         collapse_factors=collapse_factors_,
-    #                                         init_attraction_weights=initial_attraction_weights,
-    #                                         show_prog=False)
-    #     optimal_res_mean_curvature.append(optim)
+    optimal_res_mean_curvature = []
+    epsilons_ = np.arange(0.05, 0.35, 0.05) 
+    collapse_factors_ = np.arange(0.2, 0.55, 0.05)
+    initial_attraction_weights = np.arange(0.25, 2.25, 0.25)
+    for i in range(len(ply_datasets)) :
+        if i == 2 : continue    # the algorithm refuses to work on a dataset with holes
+        optim = mean_curvature_pipeline_one_dataset(named_datasets[i],
+                                            ply_truth_skels[i],
+                                            epsilons=[0.1, ],
+                                            collapse_factors=collapse_factors_,
+                                            init_attraction_weights=initial_attraction_weights,
+                                            show_vis=False, 
+                                            show_prog=True)
+        optimal_res_mean_curvature.append(optim)
 
     # df = pd.DataFrame(optimal_res_mean_curvature)
     # df.to_csv("./out/mean_curvature_statistics.csv", index=False)
 
-    # optimal_res_teasar = []
-    # inv_dists = np.arange(0.1, 1.05, 0.05)
-    # for i in range(len(ply_datasets)) :
-    #     optim = teasar_pipeline_one_dataset(named_datasets[i], ply_truth_skels[i], inv_dists, show_prog=False, show_vis = False)
-    #     optimal_res_teasar.append(optim)
+    optimal_res_teasar = []
+    inv_dists = np.arange(0.1, 1.05, 0.05)
+    for i in range(len(ply_datasets)) :
+        optim = teasar_pipeline_one_dataset(named_datasets[i], ply_truth_skels[i], [0.1, 0.3], show_prog=False, show_vis = False)
+        optimal_res_teasar.append(optim)
 
     # df = pd.DataFrame(optimal_res_teasar)
     # df.to_csv("./out/teasar_statistics.csv", index = False)
 
-    # optimal_res_vclusts = []
-    # sampling_distance = np.arange(0.1, 1, 0.1)
-    # epsilons_vclusts = np.arange(0.01, 0.6, 0.02)
-    # for i in range(len(ply_datasets)) :
-    #     optim = vertex_clusters_pipeline_one_dataset(ply_datasets[i], ply_truth_skels[i], sampling_distance, epsilons_vclusts, show_vis=True)
-    #     optimal_res_vclusts.append(optim)
+    optimal_res_vclusts = []
+    sampling_distance = [0.2, 0.3, 0.5, 0.6, 0.9]
+    epsilons_vclusts = np.arange(0.1, 0.3, 0.1)
+    for i in range(len(ply_datasets)) :
+        optim = vertex_clusters_pipeline_one_dataset(named_datasets[i], ply_truth_skels[i], [0.2, 0.3, 0.5, 0.6, 0.9], [0.1, 0.2], show_vis=False)
+        optimal_res_vclusts.append(optim)
 
     # df = pd.DataFrame(optimal_res_vclusts)
     # df.to_csv("./out/vclusts_statistics.csv", index = False)
