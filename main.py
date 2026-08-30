@@ -116,6 +116,9 @@ def batch_export_objs (dir_in, dir_out, center = False) :
 
 def batch_load_datasets (dir_in) -> list :
     files = os.listdir(dir_in)
+    if len(files) < 1 :
+        print("No files found, did you forget to center your datasets?")
+        return []
     out_list = []
     for fname in files:
         if not fname.endswith("centr.ply") or not fname.startswith("mock") :
@@ -127,6 +130,9 @@ def batch_load_datasets (dir_in) -> list :
 
 def batch_load_truth_skels (dir_in) -> list :
     files = os.listdir(dir_in)
+    if len(files) < 1 :
+        print("No files found, did you forget to center your datasets?")
+        return []
     out_list = []
     for fname in files:
         if not fname.endswith("centr.ply") or not fname.startswith("skel") :
@@ -259,49 +265,35 @@ def visualise_skel_dataset (dataset_v, skel = None, g_truth_v = np.array([]), co
     o3d.visualization.draw_geometries(to_vis)
 
 def save_output_as_visualisation (dataset_v, out_name, skel = None, g_truth_v = np.array([])) :
+    rotate_by = (np.pi / 3,0 ,0)
+
     pcd_dataset = o3d.geometry.PointCloud()
     pcd_dataset.points = o3d.utility.Vector3dVector(dataset_v)
     pcd_dataset.paint_uniform_color([0.7, 0.7, 0.7])
 
+    R = pcd_dataset.get_rotation_matrix_from_xyz(rotate_by)
+    rotated_pts = np.asarray(pcd_dataset.points) @ R.T
+    pcd_dataset.points = o3d.utility.Vector3dVector(rotated_pts)
     vis = o3d.visualization.Visualizer()
     vis.create_window(width = 600, height = 600)
     vis.add_geometry(pcd_dataset)
-    v_ctrl = vis.get_view_control()
-    R = pcd_dataset.get_rotation_matrix_from_xyz((np.pi / 2,0 ,0))
-    pcd_dataset.rotate(R, center = pcd_dataset.get_center())
 
     if skel != None :
         pcd_skel = o3d.geometry.PointCloud()
-        pcd_skel.points = o3d.utility.Vector3dVector(skel.vertices)
+        pcd_skel.points = o3d.utility.Vector3dVector(skel.vertices @ R.T) 
         pcd_skel.paint_uniform_color([1, 0, 0])
-        R = pcd_skel.get_rotation_matrix_from_xyz((np.pi / 2,0 ,0))
-        pcd_skel.rotate(R, center = pcd_skel.get_center())
         vis.add_geometry(pcd_skel)
 
     if g_truth_v.size != 0 :
         pcd_gtruth = o3d.geometry.PointCloud()
-        pcd_gtruth.points = o3d.utility.Vector3dVector(g_truth_v)
+        pcd_gtruth.points = o3d.utility.Vector3dVector(g_truth_v @ R.T) 
         pcd_gtruth.paint_uniform_color([0, 0, 1])
-        R = pcd_gtruth.get_rotation_matrix_from_xyz((np.pi / 2,0 ,0))
-        pcd_gtruth.rotate(R, center = pcd_gtruth.get_center())
         vis.add_geometry(pcd_gtruth)
-    
+
     vis.poll_events()
+    vis.update_geometry(pcd_skel)
     vis.update_renderer()
     vis.capture_screen_image(f"./vis/{out_name}.png")
-
-
-def rotation (pcu_mesh, euler_angles) :
-    msh = o3d.geometry.TriangleMesh()
-    msh.vertices = o3d.utils.Vector3dVector(pcu_mesh[0])
-    msh.faces = o3d.utils.Vector3dVector(pcu_mesh[1])
-    R = msh.get_rotation_matrix_from_xyz(euler_angles)
-    msh.rotate(R, center = msh.get_center())
-    out = np.asarray(msh.points, dtype=np.float64)
-    return np.asfortranarray(out)
-
-# def check_if_invartiant_under_iso_transform (dataset_vf) :
-#     rotated
 
 def wavefront_pipeline_one_dataset (dataset_to_skeletonise, truth, wave_vals_to_try, step_size_vals_to_try, show_prog=True, show_vis=True, verbose=False) -> dict :
     # extract name of the dataset and the vertices
@@ -391,11 +383,11 @@ def tangent_ball_pipeline_one_dataset (dataset_to_skeletonise, truth, show_prog=
     algorithm_run_time = round(algorithm_run_time, 5)
     if verbose:
         print("Chamfer", chamf, "Hausdorff", haus, "Earth Mover's", e_mover, "skeleton", skel)
+        print("------")
 
     # plot max and min hausdorf and max and min chamfer
     if show_vis :
         visualise_skel_dataset(dataset[0], skel=skel, g_truth_v=truth)
-    print("------")
     save_output_as_visualisation(dataset[0], f"{dataset_name}_tangent_ball", skel=skel, g_truth_v=truth)
 
     return {"on dataset" : dataset_name, "Chamfer" : chamf, "Hausdorff" : haus, "Earth Mover's" : e_mover, "runtime" : algorithm_run_time, "no. skeleton vertices" : skel.vertices.shape[0]}
@@ -598,70 +590,73 @@ def main () :
     data_path = "C:/Users/vdwq25/data"
     data_path_out = "C:/Users/vdwq25/data/npy"
 
-    # run this line below if you made changes to the /data folder
-    #batch_center_objs(data_path)
+    # run this line below if you made changes to the /data folder or any other folder you stored your inputs
+    # if you want to run just a small batch you can move those files into seperate folder and point functions to it
+    batch_center_objs(data_path)
+    # load only the datasets and skeletons that have been centered
     ply_datasets = batch_load_datasets(data_path)
     ply_truth_skels = batch_load_truth_skels(data_path)
     to_dup = ply_truth_skels[1]
     ply_truth_skels.insert(2, to_dup)
     # load names of the datasets
     ply_datasets_names = dataset_names(data_path)
+    print(ply_datasets_names)
     # create a list that containst tuples (dataset vertices and faces, dataset name)
     named_datasets = convert_to_list_of_tuples(ply_datasets, ply_datasets_names)
     # named_datasets and ply_truth_skels are now parallel - dataset with index i has corresponding skeleton in the 
     # other list at the same index
 
-    waves = range(1, 11)
-    steps = range(1, 7)
-    optimal_res_wavefront = []
-    for i in range(len(ply_datasets)) :
-        optm = wavefront_pipeline_one_dataset(named_datasets[i], ply_truth_skels[i], [2, 5, 6, 8], [1, 2], show_vis=False, show_prog=True)
-        optimal_res_wavefront.append(optm)
+    # waves = range(1, 11)
+    # steps = range(1, 7)
+    # optimal_res_wavefront = []
+    # for i in range(len(ply_datasets)) :
+    #     optm = wavefront_pipeline_one_dataset(named_datasets[i], ply_truth_skels[i], waves, steps, show_vis=False, show_prog=True)
+    #     optimal_res_wavefront.append(optm)
 
     # df = pd.DataFrame(optimal_res_wavefront)
     # df.to_csv("./out/wavefront_statistics.csv", index=False)
 
-    optimal_res_tangent_ball = []
-    for i in range(len(ply_datasets)) :
-        optm = tangent_ball_pipeline_one_dataset(named_datasets[i], ply_truth_skels[i], show_vis=False, verbose=True)
-        optimal_res_tangent_ball.append(optm)
+    # optimal_res_tangent_ball = []
+    # for i in range(len(ply_datasets)) :
+    #     optm = tangent_ball_pipeline_one_dataset(named_datasets[i], ply_truth_skels[i], show_vis=False, verbose=False)
+    #     optimal_res_tangent_ball.append(optm)
     
     # df = pd.DataFrame(optimal_res_tangent_ball)
     # df.to_csv("./out/tangent_ball_statistics.csv", index=False)
 
-    optimal_res_mean_curvature = []
-    epsilons_ = np.arange(0.05, 0.35, 0.05) 
-    collapse_factors_ = np.arange(0.2, 0.55, 0.05)
-    initial_attraction_weights = np.arange(0.25, 2.25, 0.25)
-    for i in range(len(ply_datasets)) :
-        if i == 2 : continue    # the algorithm refuses to work on a dataset with holes
-        optim = mean_curvature_pipeline_one_dataset(named_datasets[i],
-                                            ply_truth_skels[i],
-                                            epsilons=[0.1, ],
-                                            collapse_factors=collapse_factors_,
-                                            init_attraction_weights=initial_attraction_weights,
-                                            show_vis=False, 
-                                            show_prog=True)
-        optimal_res_mean_curvature.append(optim)
+    # optimal_res_mean_curvature = []
+    # epsilons_ = np.arange(0.05, 0.35, 0.05) 
+    # collapse_factors_ = np.arange(0.1, 0.55, 0.05)
+    # initial_attraction_weights = np.arange(0.25, 2.25, 0.25)
+    # for i in range(len(ply_datasets)) :
+    #     if i == 2 or i ==7 : continue    # the algorithm refuses to work on a dataset dataset with missing information or the torus
+    #     optim = mean_curvature_pipeline_one_dataset(named_datasets[i],
+    #                                         ply_truth_skels[i],
+    #                                         epsilons=epsilons_,
+    #                                         collapse_factors=collapse_factors_,
+    #                                         init_attraction_weights=initial_attraction_weights,
+    #                                         show_vis=False, 
+    #                                         show_prog=True)
+    #     optimal_res_mean_curvature.append(optim)
 
     # df = pd.DataFrame(optimal_res_mean_curvature)
     # df.to_csv("./out/mean_curvature_statistics.csv", index=False)
 
-    optimal_res_teasar = []
-    inv_dists = np.arange(0.1, 1.05, 0.05)
-    for i in range(len(ply_datasets)) :
-        optim = teasar_pipeline_one_dataset(named_datasets[i], ply_truth_skels[i], [0.1, 0.3], show_prog=False, show_vis = False)
-        optimal_res_teasar.append(optim)
+    # optimal_res_teasar = []
+    # inv_dists = np.arange(0.05, 1.05, 0.05)
+    # for i in range(len(ply_datasets)) :
+    #     optim = teasar_pipeline_one_dataset(named_datasets[i], ply_truth_skels[i], inv_dists, show_prog=False, show_vis = False)
+    #     optimal_res_teasar.append(optim)
 
     # df = pd.DataFrame(optimal_res_teasar)
     # df.to_csv("./out/teasar_statistics.csv", index = False)
 
-    optimal_res_vclusts = []
-    sampling_distance = [0.2, 0.3, 0.5, 0.6, 0.9]
-    epsilons_vclusts = np.arange(0.1, 0.3, 0.1)
-    for i in range(len(ply_datasets)) :
-        optim = vertex_clusters_pipeline_one_dataset(named_datasets[i], ply_truth_skels[i], [0.2, 0.3, 0.5, 0.6, 0.9], [0.1, 0.2], show_vis=False)
-        optimal_res_vclusts.append(optim)
+    # optimal_res_vclusts = []
+    # sampling_distance = np.arange(0.1, 1.1, 0.1)
+    # epsilons_vclusts = np.arange(0.05, 0.3, 0.05)
+    # for i in range(len(ply_datasets)) :
+    #     optim = vertex_clusters_pipeline_one_dataset(named_datasets[i], ply_truth_skels[i], sampling_distance, epsilons_vclusts, show_vis=False)
+    #     optimal_res_vclusts.append(optim)
 
     # df = pd.DataFrame(optimal_res_vclusts)
     # df.to_csv("./out/vclusts_statistics.csv", index = False)
