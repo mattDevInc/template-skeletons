@@ -7,6 +7,7 @@ import skeletor as sk
 import pandas as pd
 import copy
 import time
+from scipy.spatial import cKDTree
 
 # some of those might need swapping around
 # for t [0, 6pi]
@@ -587,22 +588,22 @@ def vertex_clusters_pipeline_one_dataset (dataset_to_skeletonise, truth, samp_di
     return optimal_cycle
 
 def main () :
-    data_path = "C:/Users/vdwq25/data"
-    data_path_out = "C:/Users/vdwq25/data/npy"
+    data_path = "./data"
+    data_path_out = "./data_out"
 
     # run this line below if you made changes to the /data folder or any other folder you stored your inputs
     # if you want to run just a small batch you can move those files into seperate folder and point functions to it
-    batch_center_objs(data_path)
+    #batch_center_objs(data_path)
     # load only the datasets and skeletons that have been centered
-    ply_datasets = batch_load_datasets(data_path)
-    ply_truth_skels = batch_load_truth_skels(data_path)
-    to_dup = ply_truth_skels[1]
-    ply_truth_skels.insert(2, to_dup)
+    # ply_datasets = batch_load_datasets(data_path)
+    # ply_truth_skels = batch_load_truth_skels(data_path)
+    # to_dup = ply_truth_skels[1]
+    # ply_truth_skels.insert(2, to_dup)
     # load names of the datasets
-    ply_datasets_names = dataset_names(data_path)
-    print(ply_datasets_names)
+    # ply_datasets_names = dataset_names(data_path)
+    # print(ply_datasets_names)
     # create a list that containst tuples (dataset vertices and faces, dataset name)
-    named_datasets = convert_to_list_of_tuples(ply_datasets, ply_datasets_names)
+    #named_datasets = convert_to_list_of_tuples(ply_datasets, ply_datasets_names)
     # named_datasets and ply_truth_skels are now parallel - dataset with index i has corresponding skeleton in the 
     # other list at the same index
 

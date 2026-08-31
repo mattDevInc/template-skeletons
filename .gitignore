@@ -1,6 +1,2 @@
-/template-skels
-/.vscode   
-*.ply
-*.npy
-/out
-/vis
+/tempskels
+/.vscode
